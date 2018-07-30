@@ -1,19 +1,19 @@
 package main
 
 import (
-	"flag"
-	"os"
-	"fmt"
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
-	"io/ioutil"
-	"strings"
+	"flag"
+	"fmt"
 	"github.com/eclipse/paho.mqtt.golang"
-	"bytes"
-	"strconv"
-	"time"
-	"sync"
+	"io/ioutil"
+	"os"
 	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 const BASE_TOPIC string = "/mqtt-bench/benchmark"
@@ -110,7 +110,6 @@ func Execute(exec func(clients []*mqtt.Client, opts ExecuteOptions, clientId *Cl
 	fmt.Println("clientId size :" + strconv.Itoa(len(clientId.ClientIds)))
 	//list := clientId.ClientIds;
 	for i := 0; i < opts.ClientNum; i++ {
-		//fmt.Println("connected client :" + strconv.Itoa(i))
 		client := Connect(i, opts, *clientId)
 		if client == nil {
 			fmt.Println(clientId.ClientIds[i])
@@ -133,8 +132,7 @@ func Execute(exec func(clients []*mqtt.Client, opts ExecuteOptions, clientId *Cl
 
 	startTime := time.Now()
 	totalCount := exec(clients, opts, clientId, message)
-	//totalCount := 0
-	//totalCount:=0
+	//fmt.Printf("totalCount:%d\n",totalCount)
 	endTime := time.Now()
 
 	fmt.Printf("%s end benchmark\n", time.Now())
@@ -143,7 +141,7 @@ func Execute(exec func(clients []*mqtt.Client, opts ExecuteOptions, clientId *Cl
 	duration := (endTime.Sub(startTime)).Nanoseconds() / int64(1000000)
 	// messages/sec
 	throughput := float64(totalCount) / float64(duration) * 1000
-	fmt.Printf("\nResult : broker=%s, clients=%d, totalCount=%d, duration=%dms, throughput=%.2fmessages/sec\n",
+	fmt.Printf("\nResult : broker=%s, totalClients=%d, totalCount=%d, duration=%dms, throughput=%.2fsubMessage/sec\n",
 		opts.Broker, opts.ClientNum, totalCount, duration, throughput)
 
 	time.Sleep(100000 * time.Second)
@@ -155,9 +153,6 @@ func Connect(id int, execOpts ExecuteOptions, clientIds ClientId) mqtt.Client {
 	opts.AddBroker(execOpts.Broker)
 	opts.SetClientID(clientId)
 
-	//fmt.Println(clientId)
-	//if execOpts.Username != ""{}
-	//if execOpts.Password !=""{}
 	certConfig := execOpts.CertConfig
 	switch c := certConfig.(type) {
 	case ServerCertConfig:
@@ -201,7 +196,7 @@ func Disconnect(client mqtt.Client) {
 	client.Disconnect(10)
 }
 
-func AsyncDisconnect(clients [] *mqtt.Client) {
+func AsyncDisconnect(clients []*mqtt.Client) {
 	wg := new(sync.WaitGroup)
 	for _, client := range clients {
 		wg.Add(1)
@@ -287,7 +282,7 @@ func Subscribe(client mqtt.Client, topic string, qos byte) *SubscribeResult {
 		token := client.Subscribe(topic, qos, handler)
 		if token.Wait() && token.Error() != nil {
 			fmt.Printf("Subscribe error: %s\n", token.Error())
-		}else {
+		} else {
 			result.Count++
 		}
 	} else {
@@ -297,7 +292,7 @@ func Subscribe(client mqtt.Client, topic string, qos byte) *SubscribeResult {
 	return result
 }
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU());
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	broker := flag.String("broker", "tcp://{host}:{port}", "URI of MQTT broker (required)")
 	action := flag.String("action", "p|pub or s|sub", "Publish or Subscribe or Subscribe(with publishing) (required)")
 	qos := flag.Int("qos", 0, "MQTT QoS(0|1|2)")
@@ -364,15 +359,15 @@ func main() {
 		clientCertFile := strings.TrimSpace(configArray[1])
 		clientKeyFile := strings.TrimSpace(configArray[2])
 
-		if (FileExists(rootCAFile) == false) {
+		if FileExists(rootCAFile) == false {
 			fmt.Printf("File is not found. : rootCAFile -> %s\n", rootCAFile)
 			return
 		}
-		if (FileExists(clientCertFile) == false) {
+		if FileExists(clientCertFile) == false {
 			fmt.Printf("File is not found. : rootCAFile -> %s\n", clientCertFile)
 			return
 		}
-		if (FileExists(clientKeyFile) == false) {
+		if FileExists(clientKeyFile) == false {
 			fmt.Printf("File is not found. : rootCAFile -> %s\n", clientKeyFile)
 			return
 		}

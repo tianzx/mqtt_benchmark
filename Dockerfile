@@ -10,7 +10,7 @@ ENV GO_ENV=prod
 RUN mkdir  -p /data/app
 RUN echo 'net.ipv4.ip_local_port_range = 8001 65000' >> /etc/sysctl.conf
 WORKDIR /data/app
-COPY ./tls/mqtt-bench /data/app/
+COPY ./mqtt-bench /data/app/
 COPY ./tls/clientIds/client_ids_* /data/app/
 COPY ./tls/TlsMobile_10003_dev_dummy1.* /data/app/
 #COPY ./tls/config/sysctl.conf /etc/
