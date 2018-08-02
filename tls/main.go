@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"github.com/eclipse/paho.mqtt.golang"
 	"io/ioutil"
+	"log"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +23,8 @@ var Debug bool = false
 var DefaultHandlerResults []*SubscribeResult
 
 var tlsConfig *tls.Config
+
+var infoLog *log.Logger
 
 type SubscribeResult struct {
 	Count int // 订阅结果
@@ -99,49 +101,50 @@ type ExecuteOptions struct {
 }
 
 func Execute(exec func(clients []*mqtt.Client, opts ExecuteOptions, clientId *ClientId, param ...string) int, opts ExecuteOptions) {
+	startTime := time.Now()
+	infoLog.Printf("%s start benchmark\n", time.Now())
 	message := CreateFixedSizeMessage(opts.MessageSize)
-
 	DefaultHandlerResults = make([]*SubscribeResult, opts.ClientNum)
 	//mqtt client lists
 	clients := make([]*mqtt.Client, opts.ClientNum)
-	hasError := false
+	//hasError := false
 	clientId := new(ClientId)
 	clientId.initClientId(opts.ClientIdsFileName)
-	fmt.Println("clientId size :" + strconv.Itoa(len(clientId.ClientIds)))
+	infoLog.Println("clientId size :" + strconv.Itoa(len(clientId.ClientIds)))
 	//list := clientId.ClientIds;
 	for i := 0; i < opts.ClientNum; i++ {
 		client := Connect(i, opts, *clientId)
+		if i%1000 == 0 {
+			infoLog.Println("connected num :" + strconv.Itoa(i))
+		}
 		if client == nil {
-			fmt.Println(clientId.ClientIds[i])
+			infoLog.Println(clientId.ClientIds[i])
 		}
 		clients[i] = &client
 	}
-	if hasError {
-		for i := 0; i < len(clients); i++ {
-			client := clients[i]
-			if client != nil {
-				//(*client)
-			}
-		}
-		return
-	}
-
-	//time.Sleep(time.Duration(opts.PreTime) * time.Millisecond)
-
-	fmt.Printf("%s start benchmark\n", time.Now())
-
-	startTime := time.Now()
+	//if hasError {
+	//	for i := 0; i < len(clients); i++ {
+	//		client := clients[i]
+	//		if client != nil {
+	//			//(*client)
+	//		}
+	//	}
+	//	return
+	//}
+	endTimeConn := time.Now()
+	durationConn := (endTimeConn.Sub(startTime)).Seconds()
+	infoLog.Printf(" connect duration %fs \n", durationConn)
+	throughputConn := float64(len(clients)) / float64(durationConn) * 1000
+	infoLog.Printf("\nResult : broker=%s, totalClients=%d, totalCount=%d, duration=%fs, throughputConn=%.2fconnMessage/sec\n",
+		opts.Broker, opts.ClientNum, len(clients), durationConn, throughputConn)
 	totalCount := exec(clients, opts, clientId, message)
-	//fmt.Printf("totalCount:%d\n",totalCount)
 	endTime := time.Now()
 
-	fmt.Printf("%s end benchmark\n", time.Now())
-	//AsyncDisconnect(clients)
-
-	duration := (endTime.Sub(startTime)).Nanoseconds() / int64(1000000)
+	infoLog.Printf("%s end benchmark\n", time.Now())
+	duration := (endTime.Sub(startTime)).Seconds()
 	// messages/sec
 	throughput := float64(totalCount) / float64(duration) * 1000
-	fmt.Printf("\nResult : broker=%s, totalClients=%d, totalCount=%d, duration=%dms, throughput=%.2fsubMessage/sec\n",
+	infoLog.Printf("\nResult : broker=%s, totalClients=%d, totalCount=%d, duration=%fs, throughput=%.2fsubMessage/sec\n",
 		opts.Broker, opts.ClientNum, totalCount, duration, throughput)
 
 	time.Sleep(100000 * time.Second)
@@ -167,7 +170,7 @@ func Connect(id int, execOpts ExecuteOptions, clientIds ClientId) mqtt.Client {
 		opts.SetTLSConfig(tlsConfig)
 	default:
 		if Debug {
-			fmt.Println("no tls config")
+			infoLog.Println("no tls config")
 		}
 	}
 	if execOpts.UseDefaultHandler == true {
@@ -176,7 +179,7 @@ func Connect(id int, execOpts ExecuteOptions, clientIds ClientId) mqtt.Client {
 		var handler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
 			result.Count++
 			if Debug {
-				fmt.Printf("Received at defaultHandler : topic=%s ,message=%s\n", msg.Topic(), msg.Payload())
+				infoLog.Printf("Received at defaultHandler : topic=%s ,message=%s\n", msg.Topic(), msg.Payload())
 			}
 		}
 		opts.SetDefaultPublishHandler(handler)
@@ -186,7 +189,7 @@ func Connect(id int, execOpts ExecuteOptions, clientIds ClientId) mqtt.Client {
 	//go client.Connect()
 	token := client.Connect()
 	if token.Wait() && token.Error() != nil {
-		fmt.Printf("Connected error : %s\n", token.Error())
+		infoLog.Printf("Connected error : %s\n", token.Error())
 		return nil
 	}
 	return client
@@ -230,25 +233,30 @@ func PublishAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *Cli
 			for index := 0; index < opts.Count; index++ {
 				topic := fmt.Sprintf(opts.Topic+"/%s"+"/outbox", clientId)
 				if Debug {
-					fmt.Printf("Publish : id=%d, count=%d, topic=%s\n", clientId, index, topic)
+					infoLog.Printf("Publish : id=%d, count=%d, topic=%s\n", clientId, index, topic)
 				}
-				Publish(&client, topic, opts.Qos, opts.Retain, message)
+				Publish(client, topic, opts.Qos, opts.Retain, message)
 				totalCount++
 				//每个client每隔一段时间上报数据
-				if opts.IntervalTime > 0 {
-					time.Sleep(time.Duration(opts.IntervalTime) * time.Millisecond)
-				}
+				//if opts.IntervalTime > 0 {
+				//	time.Sleep(time.Duration(opts.IntervalTime) * time.Millisecond)
+				//}
 			}
 		}(clientId.ClientIds[id])
 	}
 	wg.Wait()
 	return totalCount
 }
-func Publish(client *mqtt.Client, topic string, qos byte, retain bool, message string) {
-	token := (*client).Publish(topic, qos, retain, message)
-	if token.Wait() && token.Error() != nil {
-		fmt.Printf("publish error: %s\n", token.Error())
+func Publish(client mqtt.Client, topic string, qos byte, retain bool, message string) {
+	if client != nil {
+		token := client.Publish(topic, qos, retain, message)
+		if token.Wait() && token.Error() != nil {
+			infoLog.Printf("publish error: %s\n", token.Error())
+		}
+	} else {
+		infoLog.Printf("client is  is nil: %s\n", &client)
 	}
+
 }
 
 func SubscribeAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *ClientId, param ...string) int {
@@ -261,7 +269,6 @@ func SubscribeAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *C
 		go func(id int) {
 			defer wg.Done()
 			results[id] = Subscribe(client, topic, opts.Qos)
-			//fmt.Println("client:" + clientId.ClientIds[id] + "topic:" + topic)
 		}(id)
 	}
 	wg.Wait()
@@ -276,23 +283,21 @@ func Subscribe(client mqtt.Client, topic string, qos byte) *SubscribeResult {
 	var result *SubscribeResult = &SubscribeResult{}
 	result.Count = 0
 	var handler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
-		fmt.Printf("Received message : topic=%s, message=%s\n", msg.Topic(), msg.Payload())
+		infoLog.Printf("Received message : topic=%s, message=%s\n", msg.Topic(), msg.Payload())
 	}
 	if client != nil {
 		token := client.Subscribe(topic, qos, handler)
 		if token.Wait() && token.Error() != nil {
-			fmt.Printf("Subscribe error: %s\n", token.Error())
+			infoLog.Printf("Subscribe error: %s\n", token.Error())
 		} else {
 			result.Count++
 		}
 	} else {
-		fmt.Printf("client is  is nil: %s\n", &client)
-
+		infoLog.Printf("client is  is nil: %s\n", &client)
 	}
 	return result
 }
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
 	broker := flag.String("broker", "tcp://{host}:{port}", "URI of MQTT broker (required)")
 	action := flag.String("action", "p|pub or s|sub", "Publish or Subscribe or Subscribe(with publishing) (required)")
 	qos := flag.Int("qos", 0, "MQTT QoS(0|1|2)")
@@ -309,8 +314,16 @@ func main() {
 	intervalTime := flag.Int("intervaltime", 0, "Interval time per message (ms)")
 	debug := flag.Bool("x", false, "Debug mode")
 	fileName := flag.String("cId", "", "clientId file")
-	fmt.Println(fileName)
 	flag.Parse()
+	strArray := strings.Split(*fileName, "_")
+	logFileName := "/data/app/log/mqtt_bench.log" + strArray[2]
+	logFile, err := os.OpenFile(logFileName, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0755)
+	defer logFile.Close()
+	if err != nil {
+		log.Fatalln("open file error !")
+	}
+	infoLog = log.New(logFile, "info", log.Llongfile)
+	infoLog.Println(fileName)
 
 	if len(os.Args) <= 1 {
 		flag.Usage()
@@ -319,7 +332,7 @@ func main() {
 
 	//validate broker url
 	if broker == nil || *broker == "" || *broker == "tcp://{host}:{port}" {
-		fmt.Printf("Invalid argument : -broker -> %s\n", *broker)
+		infoLog.Printf("Invalid argument : -broker -> %s\n", *broker)
 		return
 	}
 
@@ -332,7 +345,7 @@ func main() {
 	}
 
 	if method != "pub" && method != "sub" {
-		fmt.Printf("Invalid argument : -action -> %s\n", *action)
+		infoLog.Printf("Invalid argument : -action -> %s\n", *action)
 		return
 	}
 
@@ -340,19 +353,19 @@ func main() {
 
 	//parse TLS mode
 	if *tls == "" {
-		fmt.Println("mqtt client in pure tcp mode")
+		infoLog.Println("mqtt client in pure tcp mode")
 	} else if strings.HasPrefix(*tls, "server:") {
 		var strArray = strings.Split(*tls, "server:")
 		serverCertFile := strings.TrimSpace(strArray[1])
 		if FileExists(serverCertFile) == false {
-			fmt.Printf("File is not found. : certFile -> %s\n", serverCertFile)
+			infoLog.Printf("File is not found. : certFile -> %s\n", serverCertFile)
 			return
 		}
 
 		certConfig = ServerCertConfig{
 			ServerCertFile: serverCertFile}
 	} else if strings.HasPrefix(*tls, "client:") {
-		fmt.Println("client tls")
+		infoLog.Println("client tls")
 		var strArray = strings.Split(*tls, "client:")
 		var configArray = strings.Split(strArray[1], ",")
 		rootCAFile := strings.TrimSpace(configArray[0])
@@ -360,15 +373,15 @@ func main() {
 		clientKeyFile := strings.TrimSpace(configArray[2])
 
 		if FileExists(rootCAFile) == false {
-			fmt.Printf("File is not found. : rootCAFile -> %s\n", rootCAFile)
+			infoLog.Printf("File is not found. : rootCAFile -> %s\n", rootCAFile)
 			return
 		}
 		if FileExists(clientCertFile) == false {
-			fmt.Printf("File is not found. : rootCAFile -> %s\n", clientCertFile)
+			infoLog.Printf("File is not found. : rootCAFile -> %s\n", clientCertFile)
 			return
 		}
 		if FileExists(clientKeyFile) == false {
-			fmt.Printf("File is not found. : rootCAFile -> %s\n", clientKeyFile)
+			infoLog.Printf("File is not found. : rootCAFile -> %s\n", clientKeyFile)
 			return
 		}
 		certConfig = ClientCertConfig{
@@ -377,7 +390,7 @@ func main() {
 			ClientKeyFile:  clientKeyFile,
 		}
 	} else {
-		fmt.Println("please pass right cert file")
+		infoLog.Println("please pass right cert file")
 	}
 
 	execOpts := ExecuteOptions{}
@@ -397,13 +410,13 @@ func main() {
 
 	switch method {
 	case "pub":
-		fmt.Println("client pub mode")
+		infoLog.Println("client pub mode")
 		Execute(PublishAllClient, execOpts)
 	case "sub":
-		fmt.Println("client sub mode")
+		infoLog.Println("client sub mode")
 		Execute(SubscribeAllClient, execOpts)
 	default:
-		fmt.Println("just test connect num")
+		infoLog.Println("just test connect num")
 		//Execute(execOpts)
 	}
 }
