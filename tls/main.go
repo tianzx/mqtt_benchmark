@@ -22,6 +22,8 @@ var Debug bool = false
 
 var DefaultHandlerResults []*SubscribeResult
 
+var mapResult = make(map[string]int)
+
 var tlsConfig *tls.Config
 
 var infoLog *log.Logger
@@ -419,6 +421,7 @@ func main() {
 		infoLog.Println("just test connect num")
 		//Execute(execOpts)
 	}
+	select {}
 }
 
 func FileExists(filePath string) bool {

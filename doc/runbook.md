@@ -13,7 +13,7 @@ sudo docker push tianzx/mqtt-bench
 sudo docker pull tianzx/mqtt-bench
 
 # 5 step start container :
-sudo docker run -d  --ulimit nofile=98304:98304  --sysctl net.ipv4.ip_local_port_range="1000 65000" tianzx/mqtt-bench  -broker='ssl://msg-dev.app.nio.com:20083' -action='s' -cId='client_ids_2' -clients=50000 -tls='client:TlsMobile_10003_dev_dummy1.trustchain,TlsMobile_10003_dev_dummy1.crt,TlsMobile_10003_dev_dummy1.key'
+sudo docker run -d  --ulimit nofile=98304:98304  --sysctl net.ipv4.ip_local_port_range="1000 65000" tianzx/mqtt-bench  -broker='ssl://msg-dev.app.nio.com://:20083' -action='s' -cId='client_ids_1' -clients=100 -tls='client:TlsMobile_10003_dev_dummy1.trustchain,TlsMobile_10003_dev_dummy1.crt,TlsMobile_10003_dev_dummy1.key'
 
 
 #others useful command:
@@ -34,6 +34,8 @@ sudo docker ps -a | awk '{print $1}'|sudo xargs docker rm
 sudo systemctl restart  message_server.service
 
 sudo systemctl start  message_server.service
+
+sudo systemctl stop  message_server.service
 
 sudo systemctl status  message_server.service
 

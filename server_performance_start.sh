@@ -4,6 +4,7 @@ for ((i=1; i<6; i++)); do
 	sudo docker run -d \
 	--ulimit nofile=98304:98304 \
 	--name mqtt-bench-${i} \
+	--net=none
 	tianzx/mqtt-bench \
 	-broker='ssl://msg-dev.app.nio.com:20083' \
 	-action='s' \
