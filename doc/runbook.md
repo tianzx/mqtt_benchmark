@@ -48,3 +48,7 @@ This is the TCP server-client suit to help you test if your OS supports c1000k(1
 (https://github.com/ideawu/c1000k)
 
 
+#before start
+install go
+
+install protoc-gen-go (protoc --go_out=. *.proto) 

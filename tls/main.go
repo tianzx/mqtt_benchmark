@@ -1,8 +1,7 @@
 package main
 
 import (
-	msg "./proto"
-	"bytes"
+	"./proto"
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
@@ -30,8 +29,13 @@ var tlsConfig *tls.Config
 
 var infoLog *log.Logger
 
+var handleNum chan int
+
+var totalCounts int
+
 type Person struct {
 	name string
+	age  string
 }
 type SubscribeResult struct {
 	Count int // 订阅结果
@@ -107,10 +111,10 @@ type ExecuteOptions struct {
 	ClientIdsFileName string
 }
 
-func Execute(exec func(clients []*mqtt.Client, opts ExecuteOptions, clientId *ClientId, param ...string) int, opts ExecuteOptions) {
+func Execute(exec func(clients []*mqtt.Client, opts ExecuteOptions, clientId *ClientId, message *msg.Message, param ...string) int, opts ExecuteOptions) {
 	startTime := time.Now()
 	infoLog.Printf("%s start benchmark\n", time.Now())
-	message := CreateFixedSizeMessage(opts.MessageSize)
+	message := CreateFixedMessage()
 	DefaultHandlerResults = make([]*SubscribeResult, opts.ClientNum)
 	//mqtt client lists
 	clients := make([]*mqtt.Client, opts.ClientNum)
@@ -140,21 +144,23 @@ func Execute(exec func(clients []*mqtt.Client, opts ExecuteOptions, clientId *Cl
 	//}
 	endTimeConn := time.Now()
 	durationConn := (endTimeConn.Sub(startTime)).Seconds()
-	infoLog.Printf(" connect duration %fs \n", durationConn)
+	//infoLog.Printf(" connect duration %fs \n", durationConn)
 	throughputConn := float64(len(clients)) / float64(durationConn) * 1000
 	infoLog.Printf("\nResult : broker=%s, totalClients=%d, totalCount=%d, duration=%fs, throughputConn=%.2fconnMessage/sec\n",
 		opts.Broker, opts.ClientNum, len(clients), durationConn, throughputConn)
+	//concrete impl
 	totalCount := exec(clients, opts, clientId, message)
+	totalCounts = totalCount
 	endTime := time.Now()
 
-	infoLog.Printf("%s end benchmark\n", time.Now())
+	//infoLog.Printf("%s end benchmark\n", time.Now())
 	duration := (endTime.Sub(startTime)).Seconds()
 	// messages/sec
 	throughput := float64(totalCount) / float64(duration) * 1000
-	infoLog.Printf("\nResult : broker=%s, totalClients=%d, totalCount=%d, duration=%fs, throughput=%.2fsubMessage/sec\n",
+	infoLog.Printf("\nResult : broker=%s, totalClients=%d, totalCount=%d, duration=%fs, throughput=%.2f process message/sec\n",
 		opts.Broker, opts.ClientNum, totalCount, duration, throughput)
 
-	time.Sleep(100000 * time.Second)
+	//time.Sleep(100000 * time.Second)
 }
 func Connect(id int, execOpts ExecuteOptions, clientIds ClientId) mqtt.Client {
 	//通过读取数据库中的clients为其分配一个单独的clientId
@@ -217,18 +223,43 @@ func AsyncDisconnect(clients []*mqtt.Client) {
 	}
 	wg.Wait()
 }
-func CreateFixedSizeMessage(size int) string {
-	var buffer bytes.Buffer
-	for i := 0; i < size; i++ {
-		buffer.WriteString(strconv.Itoa(i % 10))
-	}
 
-	message := buffer.String()
+//func CreateFixedSizeMessage(size int) string {
+//	var buffer bytes.Buffer
+//	for i := 0; i < size; i++ {
+//		buffer.WriteString(strconv.Itoa(i % 10))
+//	}
+//
+//	message := buffer.String()
+//	return message
+//}
+func CreateFixedMessage() *msg.Message {
+	//person := &Person{"tianzx","18"}
+	/**
+	id:"f23699db-4496-4e2c-a642-c7d304a0824c"
+	publish_ts:1533542732492
+	ttl:1000 type:NOTIFICATION
+	sub_type:"test"
+	params:<key:"name" value:"tianzx" > params:<key:"age" value:"18" >
+	qos:LEAST_ONCE
+	*/
+	key := "name"
+	val := "tianzx"
+	param := &msg.Message_ParamType{
+		Key:   &key,
+		Value: []byte(val),
+	}
+	//age:="18"
+	//param := &msg.Message.Type
+	bytes := []*msg.Message_ParamType{}
+	bytes = append(bytes, param)
+	message := &msg.Message{
+		Params: bytes,
+	}
 	return message
 }
-
-func PublishAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *ClientId, param ...string) int {
-	message := param[0]
+func PublishAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *ClientId, message *msg.Message, param ...string) int {
+	//message := param[0]
 	wg := new(sync.WaitGroup)
 	totalCount := 0
 	for id := 0; id < len(clients); id++ {
@@ -237,8 +268,8 @@ func PublishAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *Cli
 		go func(clientId string) {
 			defer wg.Done()
 
-			for index := 0; index < opts.Count; index++ {
-				topic := fmt.Sprintf(opts.Topic+"/%s"+"/outbox", clientId)
+			for index := 0; index < len(clients); index++ {
+				topic := fmt.Sprintf("/clients"+opts.Topic+"/%s"+"/outbox", clientId)
 				if Debug {
 					infoLog.Printf("Publish : id=%d, count=%d, topic=%s\n", clientId, index, topic)
 				}
@@ -254,9 +285,11 @@ func PublishAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *Cli
 	wg.Wait()
 	return totalCount
 }
-func Publish(client mqtt.Client, topic string, qos byte, retain bool, message string) {
+func Publish(client mqtt.Client, topic string, qos byte, retain bool, message *msg.Message) {
 	if client != nil {
-		token := client.Publish(topic, qos, retain, message)
+		//infoLog.Println(*message)
+		payload, _ := proto.Marshal(message)
+		token := client.Publish(topic, qos, retain, payload)
 		if token.Wait() && token.Error() != nil {
 			infoLog.Printf("publish error: %s\n", token.Error())
 		}
@@ -266,7 +299,7 @@ func Publish(client mqtt.Client, topic string, qos byte, retain bool, message st
 
 }
 
-func SubscribeAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *ClientId, param ...string) int {
+func SubscribeAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *ClientId, message *msg.Message, param ...string) int {
 	wg := new(sync.WaitGroup)
 	results := make([]*SubscribeResult, len(clients))
 	for id := 0; id < len(clients); id++ {
@@ -286,6 +319,7 @@ func SubscribeAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *C
 	}
 	return totalCount
 }
+
 func Subscribe(client mqtt.Client, topic string, qos byte) *SubscribeResult {
 	var result *SubscribeResult = &SubscribeResult{}
 	result.Count = 0
@@ -298,9 +332,16 @@ func Subscribe(client mqtt.Client, topic string, qos byte) *SubscribeResult {
 		if err != nil {
 			infoLog.Printf(err.Error())
 		}
-		infoLog.Println(proData.Params)
+		//infoLog.Println(string(*proData.Params[0].Key))
+		//infoLog.Println(string(proData.Params[0].Value))
+		//for _,val := range proData.Params {
+		//	//infoLog.Println(key)
+		//	//infoLog.Println(*payload.Key)
+		//	//infoLog.Println(string(payload.Value))
+		//}
+		handleNum <- 1
 		//proData.Params[]
-		infoLog.Printf("Received message : topic=%s, message=%s\n", message.Topic(), proData)
+		//infoLog.Printf("Received message : topic=%s, message=%s\n", message.Topic(), proData)
 	}
 	if client != nil {
 		token := client.Subscribe(topic, qos, handler)
@@ -317,7 +358,7 @@ func Subscribe(client mqtt.Client, topic string, qos byte) *SubscribeResult {
 func main() {
 	broker := flag.String("broker", "tcp://{host}:{port}", "URI of MQTT broker (required)")
 	action := flag.String("action", "p|pub or s|sub", "Publish or Subscribe or Subscribe(with publishing) (required)")
-	qos := flag.Int("qos", 0, "MQTT QoS(0|1|2)")
+	qos := flag.Int("qos", 1, "MQTT QoS(0|1|2)")
 	retain := flag.Bool("retain", false, "MQTT Retain")
 	//topic := flag.String("topic", BASE_TOPIC, "Base topic")
 	//username := flag.String("broker-username", "", "Username for connecting to the MQTT broker")
@@ -355,7 +396,7 @@ func main() {
 
 	var method string = ""
 
-	if *action == "p" || *action == "sub" {
+	if *action == "p" || *action == "pub" {
 		method = "pub"
 	} else if *action == "s" || *action == "sub" {
 		method = "sub"
@@ -430,12 +471,28 @@ func main() {
 		infoLog.Println("client pub mode")
 		Execute(PublishAllClient, execOpts)
 	case "sub":
+		handleNum = make(chan int)
 		infoLog.Println("client sub mode")
 		Execute(SubscribeAllClient, execOpts)
+		var duration float64
+		nums := 0
+		//to do solve when sub success then disconnect
+		//to do bug fix
+		for i := 0; i < totalCounts; i++ {
+			subStartTime := time.Now()
+			select {
+			case num := <-handleNum:
+				nums += num
+			}
+			subEndTime := time.Now()
+			duration = (subEndTime.Sub(subStartTime)).Seconds()
+		}
+		infoLog.Printf("receivce messages total num : %s and duration %fs ", strconv.Itoa(nums), duration)
 	default:
 		infoLog.Println("just test connect num")
 		//Execute(execOpts)
 	}
+
 	select {}
 }
 
