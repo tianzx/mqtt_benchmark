@@ -1,12 +1,14 @@
 package main
 
 import (
+	msg "./proto"
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
 	"fmt"
 	"github.com/eclipse/paho.mqtt.golang"
+	"github.com/golang/protobuf/proto"
 	"io/ioutil"
 	"log"
 	"os"
@@ -28,6 +30,9 @@ var tlsConfig *tls.Config
 
 var infoLog *log.Logger
 
+type Person struct {
+	name string
+}
 type SubscribeResult struct {
 	Count int // 订阅结果
 }
@@ -284,8 +289,18 @@ func SubscribeAllClient(clients []*mqtt.Client, opts ExecuteOptions, clientId *C
 func Subscribe(client mqtt.Client, topic string, qos byte) *SubscribeResult {
 	var result *SubscribeResult = &SubscribeResult{}
 	result.Count = 0
-	var handler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
-		infoLog.Printf("Received message : topic=%s, message=%s\n", msg.Topic(), msg.Payload())
+	var handler mqtt.MessageHandler = func(client mqtt.Client, message mqtt.Message) {
+		data := message.Payload()
+		//infoLog.Println(jsonparser.GetString([]byte(string(data))))
+		//value, _ := jsonparser.GetString(data,"payload","name")
+		proData := &msg.Message{}
+		err := proto.Unmarshal(data, proData)
+		if err != nil {
+			infoLog.Printf(err.Error())
+		}
+		infoLog.Println(proData.Params)
+		//proData.Params[]
+		infoLog.Printf("Received message : topic=%s, message=%s\n", message.Topic(), proData)
 	}
 	if client != nil {
 		token := client.Subscribe(topic, qos, handler)
