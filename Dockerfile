@@ -1,5 +1,5 @@
 FROM ubuntu
-MAINTAINER zixuan.tian@nio.com
+MAINTAINER tianzx@aliyun.com
 
 RUN mkdir  -p /data/app
 CMD sysctl -w net.ipv4.ip_local_port_range="1000 65500";
