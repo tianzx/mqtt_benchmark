@@ -31,16 +31,6 @@ sudo docker ps -a | awk '{print $1}'|sudo xargs  docker stop
 
 sudo docker ps -a | awk '{print $1}'|sudo xargs docker rm
 
-sudo systemctl restart  message_server.service
-
-sudo systemctl start  message_server.service
-
-sudo systemctl stop  message_server.service
-
-sudo systemctl status  message_server.service
-
-sudo nohup /usr/bin/java -server -XX:+HeapDumpOnOutOfMemoryError -Djava.awt.headless=true -Xms3g -Xmx5g -Dlogback.configurationFile="/data/app/greatwall_messaging_server/conf/msg_server_logback.xml" -Dnextev_msg.home="/data/app/greatwall_messaging_server" -cp "/data/app/greatwall_messaging_server/lib/*" com.nio.message.server.MessageServer &
-
 sudo docker exec -it ${containerId} /bin/bash
 #ref:
 
